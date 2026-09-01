@@ -1,0 +1,1 @@
+# VolumeBoostApp – keep default rules

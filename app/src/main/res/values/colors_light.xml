@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Light theme colors — referenced by Theme.VolumeBoost.Light -->
+<resources>
+    <color name="light_bg_primary">#F3F7F4</color>
+    <color name="light_bg_secondary">#E4EDE7</color>
+    <color name="light_bg_surface">#FFFFFF</color>
+    <color name="light_text_primary">#14201A</color>
+    <color name="light_text_secondary">#4A5C52</color>
+    <color name="light_accent">#0F8A6B</color>
+    <color name="light_accent_soft">#D4F0E6</color>
+    <color name="light_boost_track">#C5D4CB</color>
+    <color name="light_boost_active">#E85D04</color>
+    <color name="light_boost_glow">#33E85D04</color>
+    <color name="light_danger">#C62828</color>
+    <color name="light_switch_track">#A8BDB2</color>
+    <color name="light_status_bar">#E4EDE7</color>
+    <color name="light_nav_bar">#F3F7F4</color>
+</resources>

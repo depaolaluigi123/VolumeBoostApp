@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App-owned themes: not DayNight, not linked to system dark mode -->
+    <style name="Theme.VolumeBoost" parent="Theme.VolumeBoost.Dark" />
+
+    <style name="Theme.VolumeBoost.Light" parent="Theme.Material3.Light.NoActionBar">
+        <item name="bgPrimary">@color/light_bg_primary</item>
+        <item name="bgSecondary">@color/light_bg_secondary</item>
+        <item name="bgSurface">@color/light_bg_surface</item>
+        <item name="textPrimary">@color/light_text_primary</item>
+        <item name="textSecondary">@color/light_text_secondary</item>
+        <item name="accentColor">@color/light_accent</item>
+        <item name="accentSoft">@color/light_accent_soft</item>
+        <item name="boostTrackColor">@color/light_boost_track</item>
+        <item name="boostActiveColor">@color/light_boost_active</item>
+        <item name="boostGlowColor">@color/light_boost_glow</item>
+
+        <item name="colorPrimary">@color/light_accent</item>
+        <item name="colorSecondary">@color/light_boost_active</item>
+        <item name="android:colorBackground">@color/light_bg_primary</item>
+        <item name="colorSurface">@color/light_bg_surface</item>
+        <item name="colorOnPrimary">@color/light_bg_primary</item>
+        <item name="colorOnSurface">@color/light_text_primary</item>
+        <item name="android:statusBarColor">@color/light_status_bar</item>
+        <item name="android:navigationBarColor">@color/light_nav_bar</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">@color/light_bg_primary</item>
+    </style>
+
+    <style name="Theme.VolumeBoost.Dark" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="bgPrimary">@color/dark_bg_primary</item>
+        <item name="bgSecondary">@color/dark_bg_secondary</item>
+        <item name="bgSurface">@color/dark_bg_surface</item>
+        <item name="textPrimary">@color/dark_text_primary</item>
+        <item name="textSecondary">@color/dark_text_secondary</item>
+        <item name="accentColor">@color/dark_accent</item>
+        <item name="accentSoft">@color/dark_accent_soft</item>
+        <item name="boostTrackColor">@color/dark_boost_track</item>
+        <item name="boostActiveColor">@color/dark_boost_active</item>
+        <item name="boostGlowColor">@color/dark_boost_glow</item>
+
+        <item name="colorPrimary">@color/dark_accent</item>
+        <item name="colorSecondary">@color/dark_boost_active</item>
+        <item name="android:colorBackground">@color/dark_bg_primary</item>
+        <item name="colorSurface">@color/dark_bg_surface</item>
+        <item name="colorOnPrimary">@color/dark_bg_primary</item>
+        <item name="colorOnSurface">@color/dark_text_primary</item>
+        <item name="android:statusBarColor">@color/dark_status_bar</item>
+        <item name="android:navigationBarColor">@color/dark_nav_bar</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">@color/dark_bg_primary</item>
+    </style>
+</resources>

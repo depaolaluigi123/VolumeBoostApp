@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Volume Boost</string>
+    <string name="tagline">Hear quiet audio clearly</string>
+    <string name="boost_label">Boost level</string>
+    <string name="boost_value_format">+%1$d dB</string>
+    <string name="boost_enabled">Boost enabled</string>
+    <string name="boost_disabled">Boost disabled</string>
+    <string name="enable_boost">Enable boost</string>
+    <string name="max_boost_label">Maximum boost</string>
+    <string name="max_boost_value_format">Max +%1$d dB</string>
+    <string name="settings">Settings</string>
+    <string name="theme">Theme</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="language">Language</string>
+    <string name="language_english">English</string>
+    <string name="language_italian">Italiano</string>
+    <string name="warning_title">Speaker care</string>
+    <string name="warning_body">High boost levels can distort sound and stress speakers. Increase gradually.</string>
+    <string name="notification_channel_name">Volume Boost</string>
+    <string name="notification_channel_desc">Keeps volume boost active in the background</string>
+    <string name="notification_title">Volume boost</string>
+    <string name="notification_text">%1$d dB</string>
+    <string name="notification_text_off">Boost off</string>
+    <string name="notification_decrease">− 1 dB</string>
+    <string name="notification_increase">+ 1 dB</string>
+    <string name="notification_slider_hint">Drag seek bar · 0…%1$d dB</string>
+    <string name="notification_display_label">Notifications</string>
+    <string name="notification_display_hint">Choose classic controls, media seek bar, both, or neither. While boost is on, Android still shows a minimal ongoing notice if both are off.</string>
+    <string name="notification_classic_option">Classic controls (−1 / +1)</string>
+    <string name="notification_media_option">Media seek bar (YouTube-style)</string>
+    <string name="notification_minimal_text">Boost active in background</string>
+    <string name="status_ready">Ready — move the slider to amplify quiet media</string>
+    <string name="status_boosting">Amplifying media by +%1$d dB</string>
+    <string name="status_error">Could not apply boost on this device</string>
+    <string name="apply">Apply</string>
+    <string name="close">Close</string>
+</resources>
