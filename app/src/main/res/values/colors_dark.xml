@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark theme colors — referenced by Theme.VolumeBoost.Dark -->
+<resources>
+    <color name="dark_bg_primary">#0B1410</color>
+    <color name="dark_bg_secondary">#15201A</color>
+    <color name="dark_bg_surface">#1C2A23</color>
+    <color name="dark_text_primary">#E8F2EC</color>
+    <color name="dark_text_secondary">#9BB0A4</color>
+    <color name="dark_accent">#2DD4A8</color>
+    <color name="dark_accent_soft">#1A3D32</color>
+    <color name="dark_boost_track">#2A3B32</color>
+    <color name="dark_boost_active">#FF7A18</color>
+    <color name="dark_boost_glow">#55FF7A18</color>
+    <color name="dark_danger">#EF5350</color>
+    <color name="dark_switch_track">#3A4F44</color>
+    <color name="dark_status_bar">#0B1410</color>
+    <color name="dark_nav_bar">#0B1410</color>
+</resources>

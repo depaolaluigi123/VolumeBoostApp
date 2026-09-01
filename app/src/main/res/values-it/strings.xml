@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Volume Boost</string>
+    <string name="tagline">Ascolta audio bassi con chiarezza</string>
+    <string name="boost_label">Livello di boost</string>
+    <string name="boost_value_format">+%1$d dB</string>
+    <string name="boost_enabled">Boost attivo</string>
+    <string name="boost_disabled">Boost disattivo</string>
+    <string name="enable_boost">Attiva boost</string>
+    <string name="max_boost_label">Boost massimo</string>
+    <string name="max_boost_value_format">Max +%1$d dB</string>
+    <string name="settings">Impostazioni</string>
+    <string name="theme">Tema</string>
+    <string name="theme_light">Chiaro</string>
+    <string name="theme_dark">Scuro</string>
+    <string name="language">Lingua</string>
+    <string name="language_english">English</string>
+    <string name="language_italian">Italiano</string>
+    <string name="warning_title">Cura degli altoparlanti</string>
+    <string name="warning_body">Livelli di boost elevati possono distorcere l\'audio e sollecitare gli altoparlanti. Aumenta gradualmente.</string>
+    <string name="notification_channel_name">Volume Boost</string>
+    <string name="notification_channel_desc">Mantiene il boost del volume attivo in background</string>
+    <string name="notification_title">Boost volume</string>
+    <string name="notification_text">%1$d dB</string>
+    <string name="notification_text_off">Boost spento</string>
+    <string name="notification_decrease">− 1 dB</string>
+    <string name="notification_increase">+ 1 dB</string>
+    <string name="notification_slider_hint">Trascina la barra · 0…%1$d dB</string>
+    <string name="notification_display_label">Notifiche</string>
+    <string name="notification_display_hint">Scegli i controlli classici, la barra media, entrambe o nessuna. Con il boost attivo Android mostra comunque un avviso minimo se entrambe sono disattivate.</string>
+    <string name="notification_classic_option">Controlli classici (−1 / +1)</string>
+    <string name="notification_media_option">Barra media (stile YouTube)</string>
+    <string name="notification_minimal_text">Boost attivo in background</string>
+    <string name="status_ready">Pronto — muovi lo slider per amplificare i media bassi</string>
+    <string name="status_boosting">Amplificazione media di +%1$d dB</string>
+    <string name="status_error">Impossibile applicare il boost su questo dispositivo</string>
+    <string name="apply">Applica</string>
+    <string name="close">Chiudi</string>
+</resources>

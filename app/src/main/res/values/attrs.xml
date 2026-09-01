@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="bgPrimary" format="color" />
+    <attr name="bgSecondary" format="color" />
+    <attr name="bgSurface" format="color" />
+    <attr name="textPrimary" format="color" />
+    <attr name="textSecondary" format="color" />
+    <attr name="accentColor" format="color" />
+    <attr name="accentSoft" format="color" />
+    <attr name="boostTrackColor" format="color" />
+    <attr name="boostActiveColor" format="color" />
+    <attr name="boostGlowColor" format="color" />
+</resources>
