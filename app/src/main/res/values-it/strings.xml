@@ -7,6 +7,7 @@
     <string name="boost_enabled">Boost attivo</string>
     <string name="boost_disabled">Boost disattivo</string>
     <string name="enable_boost">Attiva boost</string>
+    <string name="disable_boost">Disattiva boost</string>
     <string name="max_boost_label">Boost massimo</string>
     <string name="max_boost_value_format">Max +%1$d dB</string>
     <string name="settings">Impostazioni</string>
@@ -21,7 +22,7 @@
     <string name="notification_channel_name">Volume Boost</string>
     <string name="notification_channel_desc">Mantiene il boost del volume attivo in background</string>
     <string name="notification_title">Boost volume</string>
-    <string name="notification_text">%1$d dB</string>
+    <string name="notification_text">+%1$d dB</string>
     <string name="notification_text_off">Boost spento</string>
     <string name="notification_decrease">− 1 dB</string>
     <string name="notification_increase">+ 1 dB</string>
@@ -31,6 +32,19 @@
     <string name="notification_classic_option">Controlli classici (−1 / +1)</string>
     <string name="notification_media_option">Barra media (stile YouTube)</string>
     <string name="notification_minimal_text">Boost attivo in background</string>
+    <string name="detection_label">Rilevamento sessioni</string>
+    <string name="detection_status_root">Completo: accesso root</string>
+    <string name="detection_status_limited">Limitato (niente root, nessun permesso)</string>
+    <string name="detection_hint_full">Il boost raggiunge tutte le app multimediali, anche YouTube e Spotify.</string>
+    <string name="detection_hint_limited">Android nasconde le sessioni audio delle altre app, quindi ora vengono amplificati solo i player che annunciano la propria (es. VLC). Per amplificare tutte le app (YouTube, Spotify, browser…) senza root, consenti il rilevamento audio.</string>
+    <string name="detection_status_visualizer">Completo: rilevamento audio (senza root)</string>
+    <string name="detection_hint_visualizer">Il boost raggiunge tutte le app in riproduzione, anche YouTube e Spotify. L\'app in riproduzione viene trovata misurando le sessioni audio di Android: il microfono non viene mai usato.</string>
+    <string name="detection_allow_audio">Consenti rilevamento audio</string>
+    <string name="detection_audio_denied">Permesso negato. Puoi consentirlo dalle impostazioni dell\'app, in Autorizzazioni → Microfono.</string>
+    <string name="audio_permission_title">Amplifica tutte le app</string>
+    <string name="audio_permission_message">Senza root, Android permette a VolumeBoost di trovare l\'app in riproduzione (YouTube, Spotify, browser…) solo tramite il permesso \"registra audio\".\n\nViene usato solo per misurare il livello dell\'audio riprodotto. Il microfono non viene mai acceso e nulla viene registrato o inviato.\n\nQuando Android lo chiede, scegli \"Mentre usi l\'app\": con \"Solo questa volta\" il rilevamento si ferma quando l\'app viene chiusa.</string>
+    <string name="audio_permission_continue">Continua</string>
+    <string name="audio_permission_later">Non ora</string>
     <string name="status_ready">Pronto — muovi lo slider per amplificare i media bassi</string>
     <string name="status_boosting">Amplificazione media di +%1$d dB</string>
     <string name="status_error">Impossibile applicare il boost su questo dispositivo</string>

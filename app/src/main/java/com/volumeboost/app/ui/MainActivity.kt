@@ -1,16 +1,24 @@
 package com.volumeboost.app.ui
 
 import android.Manifest
+import android.app.Dialog
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.slider.Slider
 import com.volumeboost.app.R
 import com.volumeboost.app.VolumeBoostApplication
+import com.volumeboost.app.audio.AudioSessionDiscovery
+import com.volumeboost.app.audio.VisualizerSessionScanner
 import com.volumeboost.app.databinding.ActivityMainBinding
 import com.volumeboost.app.service.VolumeBoostService
 import com.volumeboost.app.settings.AppConfigContext
@@ -29,9 +37,29 @@ class MainActivity : AppCompatActivity() {
     private lateinit var boostStore: BoostStateStore
 
     private var unsubscribe: (() -> Unit)? = null
+    private var settingsDialog: Dialog? = null
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
+
+    /** Audio detection permission as of the last check: a change made in system settings. */
+    private var hadAudioPermission = false
+
+    /** Set by the open settings sheet to refresh its session detection section. */
+    var onAudioDetectionChanged: (() -> Unit)? = null
+
+    private val audioPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            hadAudioPermission = granted
+            preferences.audioDetectionDenied = !granted
+            if (granted) {
+                // Find the playing app now instead of at the next periodic check.
+                VolumeBoostService.rescan(this)
+            } else {
+                Toast.makeText(this, R.string.detection_audio_denied, Toast.LENGTH_LONG).show()
+            }
+            onAudioDetectionChanged?.invoke()
+        }
 
     override fun attachBaseContext(newBase: android.content.Context) {
         val prefs = PreferencesRepository(newBase)
@@ -49,9 +77,15 @@ class MainActivity : AppCompatActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
         applyWindowChrome()
+        hadAudioPermission = VisualizerSessionScanner.hasPermission(this)
         bindUi()
         bindState(boostStore.snapshot())
-        VolumeBoostService.sync(this)
+        // Only restore a boost that should be running (e.g. after the process was killed).
+        // Opening the app must not stop the service when boost was switched off from the
+        // notification: those controls stay in the shade until the app toggle is used.
+        if (boostStore.snapshot().enabled) {
+            VolumeBoostService.sync(this)
+        }
         maybeRequestNotificationPermission()
     }
 
@@ -59,6 +93,13 @@ class MainActivity : AppCompatActivity() {
         super.onStart()
         unsubscribe = boostStore.observe { state -> bindState(state) }
         bindState(boostStore.snapshot())
+        // Back from the system app settings, where the permission may have been changed.
+        val audioPermission = VisualizerSessionScanner.hasPermission(this)
+        if (audioPermission != hadAudioPermission) {
+            hadAudioPermission = audioPermission
+            if (audioPermission) VolumeBoostService.rescan(this)
+            onAudioDetectionChanged?.invoke()
+        }
     }
 
     override fun onStop() {
@@ -67,6 +108,13 @@ class MainActivity : AppCompatActivity() {
         unsubscribe?.invoke()
         unsubscribe = null
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        // Avoid leaking the settings window on rotation / recreate.
+        settingsDialog?.dismiss()
+        settingsDialog = null
+        super.onDestroy()
     }
 
     private fun applyWindowChrome() {
@@ -108,15 +156,24 @@ class MainActivity : AppCompatActivity() {
             }
             boostStore.setEnabled(isChecked)
             VolumeBoostService.sync(this)
+            // Without root, apps like YouTube are boosted only with audio detection.
+            if (isChecked && !preferences.audioDetectionAsked && !autoPromptShown &&
+                AudioSessionDiscovery.knownAccess(this) == AudioSessionDiscovery.Access.NONE
+            ) {
+                autoPromptShown = true
+                requestAudioDetection()
+            }
         }
 
         binding.settingsButton.setOnClickListener {
-            SettingsBottomSheet(
+            if (settingsDialog?.isShowing == true) return@setOnClickListener
+            settingsDialog = SettingsBottomSheet(
                 activity = this,
                 preferences = preferences,
                 boostStore = boostStore,
                 onThemeOrLanguageChanged = { recreate() },
-                onMaxBoostChanged = { VolumeBoostService.sync(this) },
+                // The service already follows the store; only the shade needs a refresh.
+                onMaxBoostChanged = { VolumeBoostService.publishNotification(this) },
                 onNotificationDisplayChanged = { VolumeBoostService.publishNotification(this) }
             ).show()
         }
@@ -153,6 +210,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Asks for RECORD_AUDIO, which lets [VisualizerSessionScanner] find the playing app without
+     * root. First explains why (the system dialog only says "record audio") and which answer to
+     * pick. When Android no longer shows its dialog (denied twice), opens the app's system
+     * settings instead.
+     */
+    fun requestAudioDetection() {
+        if (VisualizerSessionScanner.hasPermission(this)) return
+        // No rationale also after an expired "Only this time" grant, when the dialog still
+        // shows: only a denial as the last answer means Android stopped asking.
+        val blocked = preferences.audioDetectionDenied &&
+            !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
+        if (blocked) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", packageName, null)
+                )
+            )
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.audio_permission_title)
+            .setMessage(R.string.audio_permission_message)
+            .setPositiveButton(R.string.audio_permission_continue) { _, _ ->
+                launchAudioPermission()
+            }
+            .setNegativeButton(R.string.audio_permission_later, null)
+            .show()
+    }
+
+    private fun launchAudioPermission() {
+        preferences.audioDetectionAsked = true
+        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
     private fun maybeRequestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val granted = ContextCompat.checkSelfPermission(
@@ -162,5 +255,10 @@ class MainActivity : AppCompatActivity() {
         if (!granted) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    private companion object {
+        /** The explanation is offered automatically at most once per process. */
+        var autoPromptShown = false
     }
 }

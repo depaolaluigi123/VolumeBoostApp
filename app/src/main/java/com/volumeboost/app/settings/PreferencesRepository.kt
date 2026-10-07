@@ -83,6 +83,16 @@ class PreferencesRepository(context: Context) {
         get() = prefs.getBoolean(KEY_SHOW_MEDIA_NOTIFICATION, false)
         set(value) = prefs.edit().putBoolean(KEY_SHOW_MEDIA_NOTIFICATION, value).apply()
 
+    /** Whether the app already explained and asked for audio detection (RECORD_AUDIO). */
+    var audioDetectionAsked: Boolean
+        get() = prefs.getBoolean(KEY_AUDIO_DETECTION_ASKED, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUDIO_DETECTION_ASKED, value).apply()
+
+    /** Whether the last answer to the RECORD_AUDIO request was a denial. */
+    var audioDetectionDenied: Boolean
+        get() = prefs.getBoolean(KEY_AUDIO_DETECTION_DENIED, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUDIO_DETECTION_DENIED, value).apply()
+
     fun registerOnChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) =
         prefs.registerOnSharedPreferenceChangeListener(listener)
 
@@ -104,6 +114,8 @@ class PreferencesRepository(context: Context) {
         private const val KEY_LANGUAGE = "language"
         private const val KEY_SHOW_CLASSIC_NOTIFICATION = "show_classic_notification"
         private const val KEY_SHOW_MEDIA_NOTIFICATION = "show_media_notification"
+        private const val KEY_AUDIO_DETECTION_ASKED = "audio_detection_asked"
+        private const val KEY_AUDIO_DETECTION_DENIED = "audio_detection_denied"
 
         /** Pre-dB storage key (percentage 0–200), kept only for migration. */
         private const val KEY_LEGACY_BOOST_LEVEL = "boost_level"

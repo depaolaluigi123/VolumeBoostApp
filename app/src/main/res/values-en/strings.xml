@@ -7,6 +7,7 @@
     <string name="boost_enabled">Boost enabled</string>
     <string name="boost_disabled">Boost disabled</string>
     <string name="enable_boost">Enable boost</string>
+    <string name="disable_boost">Disable boost</string>
     <string name="max_boost_label">Maximum boost</string>
     <string name="max_boost_value_format">Max +%1$d dB</string>
     <string name="settings">Settings</string>
@@ -21,7 +22,7 @@
     <string name="notification_channel_name">Volume Boost</string>
     <string name="notification_channel_desc">Keeps volume boost active in the background</string>
     <string name="notification_title">Volume boost</string>
-    <string name="notification_text">%1$d dB</string>
+    <string name="notification_text">+%1$d dB</string>
     <string name="notification_text_off">Boost off</string>
     <string name="notification_decrease">− 1 dB</string>
     <string name="notification_increase">+ 1 dB</string>
@@ -31,6 +32,19 @@
     <string name="notification_classic_option">Classic controls (−1 / +1)</string>
     <string name="notification_media_option">Media seek bar (YouTube-style)</string>
     <string name="notification_minimal_text">Boost active in background</string>
+    <string name="detection_label">Session detection</string>
+    <string name="detection_status_root">Full: root access</string>
+    <string name="detection_status_limited">Limited (no root, no permission)</string>
+    <string name="detection_hint_full">Boost reaches every media app, including YouTube and Spotify.</string>
+    <string name="detection_hint_limited">Android hides other apps\' audio sessions, so right now only players that announce theirs (e.g. VLC) are boosted. To boost every app (YouTube, Spotify, browser…) without root, allow audio detection.</string>
+    <string name="detection_status_visualizer">Full: audio detection (no root)</string>
+    <string name="detection_hint_visualizer">Boost reaches every app that is playing, including YouTube and Spotify. The playing app is found by measuring Android\'s audio sessions: the microphone is never used.</string>
+    <string name="detection_allow_audio">Allow audio detection</string>
+    <string name="detection_audio_denied">Permission denied. You can allow it in the app settings, under Permissions → Microphone.</string>
+    <string name="audio_permission_title">Boost every app</string>
+    <string name="audio_permission_message">Without root, Android lets VolumeBoost find the app that is playing (YouTube, Spotify, browser…) only through the \"record audio\" permission.\n\nIt is used only to measure the level of the audio being played. The microphone is never turned on, and nothing is recorded or sent anywhere.\n\nWhen Android asks, choose \"While using the app\": with \"Only this time\" detection stops once the app is closed.</string>
+    <string name="audio_permission_continue">Continue</string>
+    <string name="audio_permission_later">Not now</string>
     <string name="status_ready">Ready — move the slider to amplify quiet media</string>
     <string name="status_boosting">Amplifying media by +%1$d dB</string>
     <string name="status_error">Could not apply boost on this device</string>

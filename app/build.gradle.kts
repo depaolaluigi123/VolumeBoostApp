@@ -47,4 +47,6 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.8.2")
     // MediaStyle volume SeekBar in the notification (RemoteViews cannot host SeekBar).
     implementation("androidx.media:media:1.7.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

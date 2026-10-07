@@ -81,6 +81,13 @@ class BoostGaugeView @JvmOverloads constructor(
         arcBounds.set(pad, pad, w - pad, h - pad)
     }
 
+    override fun onDetachedFromWindow() {
+        animator?.cancel()
+        animator = null
+        animatedProgress = progress
+        super.onDetachedFromWindow()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val sweep = animatedProgress * SWEEP_ANGLE

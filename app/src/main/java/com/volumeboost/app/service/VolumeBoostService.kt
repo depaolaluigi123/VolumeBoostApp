@@ -23,6 +23,7 @@ import android.os.SystemClock
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import android.util.Log
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -30,6 +31,7 @@ import androidx.media.app.NotificationCompat as MediaNotificationCompat
 import com.volumeboost.app.R
 import com.volumeboost.app.VolumeBoostApplication
 import com.volumeboost.app.audio.AudioSessionDiscovery
+import com.volumeboost.app.audio.VisualizerSessionScanner
 import com.volumeboost.app.audio.VolumeBoostManager
 import com.volumeboost.app.settings.LocaleManager
 import com.volumeboost.app.settings.PreferencesRepository
@@ -60,13 +62,21 @@ class VolumeBoostService : Service() {
 
     private var discoveryThread: HandlerThread? = null
     private var discoveryHandler: Handler? = null
-    private var discoveryActive = false
+
+    /** Written on the main thread, read on the discovery thread. */
+    @Volatile private var discoveryActive = false
+
+    /** Visualizer mode: delay before re-scanning while a media player is still not found. */
+    @Volatile private var visualizerRetryMs = VISUALIZER_RETRY_MIN_MS
 
     /** True while the foreground notification / service should stay up. */
     private var controlsActive = false
 
     /** Last enabled flag actually applied to the effect / FGS. */
     private var appliedEnabled = false
+
+    /** Last boost level applied to the effects (dB). */
+    private var appliedBoostDb = 0
 
     /** Ignore store callbacks while tearing down (ACTION_STOP). */
     private var ignoringStore = false
@@ -132,19 +142,88 @@ class VolumeBoostService : Service() {
 
     private val discoveryRunnable = object : Runnable {
         override fun run() {
-            if (AudioSessionDiscovery.isRootAvailable()) {
-                val sessions = AudioSessionDiscovery.discoverMediaSessions(Process.myPid())
-                boostManager.syncActiveSessions(sessions)
+            val nextMs = try {
+                discoverOnce()
+            } catch (error: RuntimeException) {
+                // Never let a discovery failure crash the app (and stop the boost with it).
+                Log.e(TAG, "Session discovery failed", error)
+                NO_ACCESS_RECHECK_MS
             }
-            if (discoveryActive) {
-                discoveryHandler?.postDelayed(this, DISCOVERY_INTERVAL_MS)
+            if (discoveryActive && nextMs > 0) {
+                discoveryHandler?.postDelayed(this, nextMs)
             }
         }
     }
 
+    /** One discovery pass. @return delay before the next one, or 0 to wait for playback. */
+    private fun discoverOnce(): Long {
+        val access = AudioSessionDiscovery.access(this)
+        boostManager.setGlobalMode(globalModeFor(access))
+        return when (access) {
+            // No way to find sessions: only re-check (cheap permission check, root result
+            // is cached), so a permission granted while boost is on is picked up.
+            AudioSessionDiscovery.Access.NONE -> NO_ACCESS_RECHECK_MS
+            AudioSessionDiscovery.Access.VISUALIZER -> scanAudibleSessions()
+            AudioSessionDiscovery.Access.ROOT -> {
+                // null = the scan failed: keep the current enhancers rather than dropping
+                // them all.
+                AudioSessionDiscovery.discoverMediaSessions(Process.myPid())?.let { sessions ->
+                    boostManager.syncActiveSessions(sessions)
+                }
+                DISCOVERY_INTERVAL_MS
+            }
+        }
+    }
+
+    /**
+     * Session 0 boosts new audio at once where the build honours it. With audio detection the
+     * scan measures which players it reaches, so it can stay on; with root every media session
+     * is found exactly; with neither it must give way to the first real session (no double gain).
+     */
+    private fun globalModeFor(access: AudioSessionDiscovery.Access) = when (access) {
+        AudioSessionDiscovery.Access.ROOT -> VolumeBoostManager.GlobalMode.OFF
+        AudioSessionDiscovery.Access.VISUALIZER -> VolumeBoostManager.GlobalMode.ALWAYS
+        AudioSessionDiscovery.Access.NONE -> VolumeBoostManager.GlobalMode.EXCLUSIVE
+    }
+
+    /**
+     * Visualizer mode (no root): metering sessions is heavier than reading a dump, so
+     * it runs when playback changes rather than every few seconds.
+     *
+     * @return delay before the next scan, or 0 to wait for the next playback change.
+     */
+    private fun scanAudibleSessions(): Long {
+        val playback = VisualizerSessionScanner.playback(audioManager)
+        if (playback.mediaPlayers == 0) return 0
+        // A ringtone or notification would be heard too and boosted by mistake: wait for it.
+        if (playback.alertPlaying) return VISUALIZER_ALERT_WAIT_MS
+        // At 0 dB nothing is boosted, so whether session 0 reaches a player cannot be measured.
+        val boostDb = boostStore.snapshot().boostDb
+        if (boostDb == 0) return 0
+        val heard = VisualizerSessionScanner.scan(
+            audioManager,
+            priority = boostManager.attachedSessions(),
+            wanted = playback.mediaPlayers
+        ) ?: return NO_ACCESS_RECHECK_MS
+        val covered = heard.mapValues { (_, globalGainMb) ->
+            VisualizerSessionScanner.isCoveredByGlobal(globalGainMb, boostDb)
+        }
+        Log.d(TAG, "heard (mix gain mB) $heard → covered by session 0 $covered")
+        boostManager.addHeardSessions(covered)
+        if (heard.size >= playback.mediaPlayers) return 0
+        // Not found yet (silent intro, media volume at 0, …): retry, backing off.
+        val retryMs = visualizerRetryMs
+        visualizerRetryMs = (retryMs * 2).coerceAtMost(VISUALIZER_RETRY_MAX_MS)
+        return retryMs
+    }
+
     private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>) {
-            if (discoveryActive) scheduleImmediateDiscovery()
+            if (!discoveryActive) return
+            visualizerRetryMs = VISUALIZER_RETRY_MIN_MS
+            VisualizerSessionScanner.resetDeepPass()
+            // A player that just started may not have rendered audio yet.
+            scheduleImmediateDiscovery(PLAYBACK_SETTLE_MS)
         }
     }
     private var playbackCallbackRegistered = false
@@ -181,6 +260,7 @@ class VolumeBoostService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         val sessionFilter = IntentFilter().apply {
             addAction(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION)
             addAction(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION)
@@ -227,19 +307,26 @@ class VolumeBoostService : Service() {
                 } else {
                     !boostStore.snapshot().enabled
                 }
-                pendingPublishNotification = true
                 boostStore.setEnabled(enabled)
-                if (enabled) {
-                    // Ensure FGS path runs if we were soft-disabled.
-                    scheduleApply(hardStopWhenDisabled = false, publishNotification = true)
-                }
+                // Always refresh the shade (also when the value did not change, e.g. a
+                // checkbox tap that raced with another update).
+                scheduleApply(hardStopWhenDisabled = false, publishNotification = true)
                 return START_STICKY
             }
             ACTION_ADJUST_DB -> {
                 val delta = intent.getIntExtra(EXTRA_DELTA_DB, 0)
-                pendingPublishNotification = true
                 boostStore.adjustBoostDb(delta)
+                scheduleApply(hardStopWhenDisabled = false, publishNotification = true)
                 return START_STICKY
+            }
+            ACTION_RESCAN -> {
+                // A discovery permission was just granted: use it without toggling boost.
+                if (discoveryActive) {
+                    visualizerRetryMs = VISUALIZER_RETRY_MIN_MS
+                    VisualizerSessionScanner.resetDeepPass()
+                    scheduleImmediateDiscovery()
+                }
+                return if (controlsActive) START_STICKY else START_NOT_STICKY
             }
             ACTION_PUBLISH_NOTIFICATION -> {
                 if (controlsActive || boostStore.snapshot().enabled) {
@@ -276,29 +363,23 @@ class VolumeBoostService : Service() {
         stopIfDisabled: Boolean,
         publishNotification: Boolean
     ) {
+        val previousBoostDb = appliedBoostDb
+        appliedBoostDb = state.boostDb
         if (state.enabled) {
             val needFullEnable = !appliedEnabled || !controlsActive
             if (needFullEnable) {
-                val ok = boostManager.setEnabled(true, state.boostDb)
-                if (!ok) {
-                    ignoringStore = true
-                    try {
-                        boostStore.setEnabled(false)
-                    } finally {
-                        ignoringStore = false
-                    }
-                    boostManager.release()
-                    stopDiscovery()
-                    appliedEnabled = false
-                    controlsActive = true
-                    publishControls(boostStore.snapshot())
-                    return
-                }
+                // Session 0 first (no su probe on this thread), discovery refines the mode.
+                boostManager.setGlobalMode(globalModeFor(AudioSessionDiscovery.knownAccess(this)))
+                boostManager.setEnabled(true, state.boostDb)
                 startDiscovery()
                 appliedEnabled = true
                 controlsActive = true
                 publishControls(state)
             } else {
+                if (previousBoostDb == 0 && state.boostDb > 0) {
+                    // Nothing could be measured at 0 dB: measure the players now.
+                    scheduleImmediateDiscovery(PLAYBACK_SETTLE_MS)
+                }
                 boostManager.setLevel(state.boostDb)
                 if (prefs.showMediaNotification) {
                     syncMediaSession(state)
@@ -347,7 +428,10 @@ class VolumeBoostService : Service() {
             classic != null -> ID_CLASSIC to classic
             else -> ID_MINIMAL to (minimal ?: buildMinimalNotification(state))
         }
-        startForegroundNotification(fgsId, fgsNotification)
+        if (!startForegroundNotification(fgsId, fgsNotification)) {
+            tearDownAndStop()
+            return
+        }
 
         // Secondary style (when both are enabled).
         if (showClassic && fgsId != ID_CLASSIC && classic != null) {
@@ -363,17 +447,27 @@ class VolumeBoostService : Service() {
         if (showClassic || showMedia) notificationManager.cancel(ID_MINIMAL)
     }
 
-    private fun startForegroundNotification(id: Int, notification: Notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                id,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else {
-            startForeground(id, notification)
+    /**
+     * @return false when Android refuses the foreground start — e.g. Android 12+ throws
+     *   ForegroundServiceStartNotAllowedException (an IllegalStateException) when a sticky
+     *   restart happens while the app is in the background.
+     */
+    private fun startForegroundNotification(id: Int, notification: Notification): Boolean =
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    id,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(id, notification)
+            }
+            true
+        } catch (error: IllegalStateException) {
+            Log.w(TAG, "Foreground start not allowed", error)
+            false
         }
-    }
 
     private fun tearDownAndStop() {
         controlsActive = false
@@ -390,6 +484,8 @@ class VolumeBoostService : Service() {
 
     private fun startDiscovery() {
         discoveryActive = true
+        visualizerRetryMs = VISUALIZER_RETRY_MIN_MS
+        VisualizerSessionScanner.resetDeepPass()
         if (!playbackCallbackRegistered) {
             audioManager.registerAudioPlaybackCallback(playbackCallback, discoveryHandler)
             playbackCallbackRegistered = true
@@ -397,10 +493,10 @@ class VolumeBoostService : Service() {
         scheduleImmediateDiscovery()
     }
 
-    private fun scheduleImmediateDiscovery() {
+    private fun scheduleImmediateDiscovery(delayMs: Long = 0) {
         discoveryHandler?.apply {
             removeCallbacks(discoveryRunnable)
-            post(discoveryRunnable)
+            postDelayed(discoveryRunnable, delayMs)
         }
     }
 
@@ -411,6 +507,8 @@ class VolumeBoostService : Service() {
             playbackCallbackRegistered = false
         }
         discoveryHandler?.removeCallbacks(discoveryRunnable)
+        // Do not keep an idle root process around while boost is off.
+        AudioSessionDiscovery.closeShell()
     }
 
     override fun onDestroy() {
@@ -431,6 +529,7 @@ class VolumeBoostService : Service() {
         }
         boostManager.release()
         releaseMediaSession()
+        isRunning = false
         super.onDestroy()
     }
 
@@ -514,7 +613,12 @@ class VolumeBoostService : Service() {
                 )
             )
         } else {
-            views.setBoolean(R.id.notifEnable, "setChecked", enabled)
+            // Before Android 12 RemoteViews cannot host a CheckBox: the default layout uses a
+            // Button whose label is the action it performs.
+            views.setTextViewText(
+                R.id.notifEnable,
+                localized.getString(if (enabled) R.string.disable_boost else R.string.enable_boost)
+            )
             views.setOnClickPendingIntent(
                 R.id.notifEnable,
                 controlServicePending(ACTION_SET_ENABLED, requestCode = 10) {
@@ -625,6 +729,7 @@ class VolumeBoostService : Service() {
         val current = state.boostDb.coerceIn(0, max)
         val durationMs = max * MS_PER_DB
         val positionMs = current * MS_PER_DB
+        val localized = LocaleManager.wrapContext(this, prefs)
 
         val session = mediaSession ?: MediaSessionCompat(this, MEDIA_SESSION_TAG).also { created ->
             created.setCallback(mediaCallback, mainHandler)
@@ -636,15 +741,15 @@ class VolumeBoostService : Service() {
             MediaMetadataCompat.Builder()
                 .putString(
                     MediaMetadataCompat.METADATA_KEY_TITLE,
-                    getString(R.string.notification_title)
+                    localized.getString(R.string.notification_title)
                 )
                 .putString(
                     MediaMetadataCompat.METADATA_KEY_ARTIST,
-                    getString(R.string.notification_text, current)
+                    localized.getString(R.string.notification_text, current)
                 )
                 .putString(
                     MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE,
-                    getString(R.string.notification_slider_hint, max)
+                    localized.getString(R.string.notification_slider_hint, max)
                 )
                 .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs)
                 .build()
@@ -712,11 +817,14 @@ class VolumeBoostService : Service() {
     }
 
     companion object {
+        private const val TAG = "VolumeBoostService"
+
         const val ACTION_SYNC = "com.volumeboost.app.action.SYNC"
         const val ACTION_STOP = "com.volumeboost.app.action.STOP"
         const val ACTION_SET_ENABLED = "com.volumeboost.app.action.SET_ENABLED"
         const val ACTION_ADJUST_DB = "com.volumeboost.app.action.ADJUST_DB"
         const val ACTION_PUBLISH_NOTIFICATION = "com.volumeboost.app.action.PUBLISH_NOTIFICATION"
+        const val ACTION_RESCAN = "com.volumeboost.app.action.RESCAN"
         const val EXTRA_ENABLED = "extra_enabled"
         const val EXTRA_DELTA_DB = "extra_delta_db"
 
@@ -726,6 +834,11 @@ class VolumeBoostService : Service() {
         private const val ID_MINIMAL = 1003
         private const val NO_SESSION = Int.MIN_VALUE
         private const val DISCOVERY_INTERVAL_MS = 2000L
+        private const val NO_ACCESS_RECHECK_MS = 10_000L
+        private const val PLAYBACK_SETTLE_MS = 300L
+        private const val VISUALIZER_ALERT_WAIT_MS = 2_000L
+        private const val VISUALIZER_RETRY_MIN_MS = 1_500L
+        private const val VISUALIZER_RETRY_MAX_MS = 30_000L
         private const val MEDIA_SESSION_TAG = "VolumeBoostControls"
 
         /** 1 dB ↔ 1000 ms on the MediaStyle scrubber (SystemUI shows mm:ss ≈ dB). */
@@ -739,23 +852,44 @@ class VolumeBoostService : Service() {
                 PlaybackStateCompat.ACTION_PAUSE or
                 PlaybackStateCompat.ACTION_PLAY_PAUSE
 
+        /** True between [onCreate] and [onDestroy] (same process as the UI). */
+        @Volatile
+        var isRunning = false
+            private set
+
+        /**
+         * Applies the app toggle: starts the boost, or fully stops the service when off.
+         * Does nothing when boost is off and the service is not running.
+         */
         fun sync(context: Context) {
-            val store = (context.applicationContext as VolumeBoostApplication).boostStore
-            val intent = Intent(context, VolumeBoostService::class.java).apply {
-                action = if (store.snapshot().enabled) ACTION_SYNC else ACTION_STOP
-            }
-            if (store.snapshot().enabled) {
+            val enabled = boostStore(context).snapshot().enabled
+            if (enabled) {
+                val intent = Intent(context, VolumeBoostService::class.java).setAction(ACTION_SYNC)
                 ContextCompat.startForegroundService(context, intent)
-            } else {
+            } else if (isRunning) {
+                val intent = Intent(context, VolumeBoostService::class.java).setAction(ACTION_STOP)
                 context.startService(intent)
             }
         }
 
+        /** Re-runs session discovery now (after a permission grant). No-op when not running. */
+        fun rescan(context: Context) {
+            if (!isRunning) return
+            context.startService(
+                Intent(context, VolumeBoostService::class.java).setAction(ACTION_RESCAN)
+            )
+        }
+
+        /** Pushes the current store snapshot to the shade, without spawning an idle service. */
         fun publishNotification(context: Context) {
+            if (!isRunning && !boostStore(context).snapshot().enabled) return
             val intent = Intent(context, VolumeBoostService::class.java).apply {
                 action = ACTION_PUBLISH_NOTIFICATION
             }
             context.startService(intent)
         }
+
+        private fun boostStore(context: Context): BoostStateStore =
+            (context.applicationContext as VolumeBoostApplication).boostStore
     }
 }

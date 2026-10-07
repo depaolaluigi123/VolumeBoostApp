@@ -6,7 +6,7 @@ App Android che amplifica il volume multimediale oltre il 100% utilizzando `Loud
 
 Un `AudioEffect` come `LoudnessEnhancer` viene creato su un **audio session id**. Il livello di boost è espresso in **decibel** (slider da 0 fino a un massimo configurabile dall'utente, predefinito **20 dB**, fino a **75 dB**). Il guadagno viene applicato in millibel (`dB × 100`) tramite `LoudnessEnhancer.setTargetGain`.
 
-Mentre il boost è attivo, il servizio in foreground prova **tre percorsi in parallelo** per trovare la sessione a cui collegarsi: qualunque abbia successo è sufficiente per sentire l'amplificazione. `VolumeBoostManager` mantiene una mappa `session id → LoudnessEnhancer` e riapplica il livello dello slider a ogni sessione collegata.
+Mentre il boost è attivo, il servizio in foreground collega un `LoudnessEnhancer` da un massimo di **tre fonti** e le combina in modo che ogni player venga amplificato **una sola volta**. `VolumeBoostManager` mantiene una mappa `session id → LoudnessEnhancer` e riapplica il livello dello slider a ogni sessione collegata.
 
 In **Impostazioni** puoi scegliere quali tipi di notifica ombreggiata mostrare (una, entrambe o nessuna):
 
@@ -15,36 +15,68 @@ In **Impostazioni** puoi scegliere quali tipi di notifica ombreggiata mostrare (
 
 Se il boost è attivo ed entrambe sono disattivate, Android richiede comunque una notifica foreground minima.
 
-### Percorso 1 — Sessione globale `0` (best-effort, qualsiasi dispositivo)
+### Le tre fonti
 
-L'id di sessione `0` storicamente indicava "il mix di output globale": un singolo effetto avrebbe elaborato tutto l'audio del dispositivo. Questa API è **deprecata**. Molte build Android moderne accettano ancora il collegamento di un `LoudnessEnhancer` alla sessione `0` e lo segnalano come abilitato, ma lo ignorano silenziosamente nella riproduzione reale. Alcune build OEM (determinati telefoni/tablet) lo rispettano ancora.
+#### 1. Sessione globale `0` — immediata
 
-A ogni attivazione, `VolumeBoostManager.setEnabled` chiama sempre `attach(GLOBAL_AUDIO_SESSION)` con sessione `0`. Nessun root richiesto. Se questo percorso funziona sul dispositivo, l'audio multimediale può risultare amplificato anche quando i percorsi 2 e 3 non trovano nulla.
+L'id di sessione `0` storicamente indicava "il mix di output globale". Appena si attiva il boost, le viene collegato un `LoudnessEnhancer`: sulle build che la rispettano ancora, **qualunque audio parta dopo è già amplificato**, senza ritardo. L'API è deprecata e il supporto varia:
 
-### Percorso 2 — Broadcast AudioEffect control-session (qualsiasi dispositivo)
+- **MIUI 14** la rispetta: l'audio policy sposta gli effetti globali sull'uscita che sta riproducendo musica (`moveEffects session 0` nel log), quindi YouTube viene amplificato subito. I player su un'altra uscita (VLC) non vengono raggiunti.
+- **LineageOS 20** da sola la ignora: misurati **0 dB**.
 
-I lettori multimediali conformi annunciano la sessione che stanno per utilizzare trasmettendo:
+Per questo la sessione 0 è solo il primo livello: le fonti 2 e 3 trovano i player che non raggiunge.
 
-- `AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION` (avvio)
-- `AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION` (arresto)
+#### 2. Broadcast dei player — i player che si annunciano
 
-`VolumeBoostService` registra un `BroadcastReceiver` a runtime esportato per queste azioni (`RECEIVER_EXPORTED`, richiesto da Android 13+ perché i broadcast provengono da altre app). All'evento **open** collega un `LoudnessEnhancer` a `EXTRA_AUDIO_SESSION`; all'evento **close** rilascia quell'effetto.
+I player conformi (VLC, alcuni lettori musicali) annunciano la sessione che stanno per usare con `AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION` e la rilasciano con `ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION`. `VolumeBoostService` li ascolta con un `BroadcastReceiver` registrato a runtime ed esportato (`RECEIVER_EXPORTED`, richiesto da Android 13+) e collega un enhancer a `EXTRA_AUDIO_SESSION`. Non servono root né permessi.
 
-Nessun root richiesto. Funziona solo con i lettori che emettono il broadcast. Se il boost viene attivato **dopo** che la riproduzione è già iniziata, l'evento `OPEN` potrebbe essere stato perso: in tal caso questo percorso da solo non riuscirà a collegarsi finché la riproduzione non viene riavviata (oppure finché non intervengono il percorso 1 o 3).
+#### 3. Individuazione delle sessioni — tutti gli altri player
 
-### Percorso 3 — Individuazione AudioFlinger tramite root (dispositivi rootati)
+YouTube, Deezer, i browser e molte altre app non inviano mai quel broadcast, e Android nasconde gli id di sessione delle altre app (`AudioPlaybackConfiguration` riporta `0`). Però qualunque app può collegare un effetto alla sessione di un'altra app se ne conosce l'id, quindi all'app basta trovare gli id. **Impostazioni → Rilevamento sessioni** mostra quale metodo è attivo:
 
-Molte app (YouTube, Deezer, alcuni browser, …) non emettono mai i broadcast del percorso 2, quindi un booster basato solo sui broadcast non può raggiungerle. Un'app normale inoltre non può leggere gli ID di sessione delle altre app da `AudioPlaybackConfiguration` (il framework li rende anonimi).
+1. **Root.** `AudioSessionDiscovery` esegue `dumpsys media.audio_flinger` in un'unica shell `su` persistente (niente toast di Magisk ogni pochi secondi) e tiene le tracce di output con uso **MEDIA**. Riesegue la scansione all'avvio/arresto della riproduzione e ogni 2 s. È esatto: sa quali tracce sono multimediali.
+2. **Rilevamento audio — senza root, con un tocco.** Richiede il permesso runtime `RECORD_AUDIO`; l'app spiega il perché e consiglia **"Mentre usi l'app"** ("Solo questa volta" viene revocato quando l'app si chiude). Il microfono non viene mai aperto e Android non mostra l'indicatore della privacy. `VisualizerSessionScanner`:
+   - sa dove cercare: AudioFlinger assegna gli id di sessione da un unico contatore sequenziale (9, 17, 25, … passo 8) e `AudioManager.generateAudioSessionId()` restituisce il successivo, quindi tutte le sessioni esistenti sono sotto quel valore;
+   - misura i candidati con un `Visualizer` ciascuno, a lotti di massimo 64 per 250 ms: solo le sessioni in cui passa audio riportano un livello di picco. Ordine: sessioni già collegate, i 128 id più recenti (un player appena avviato), poi i successivi 384 id di una ricerca profonda sugli id più vecchi (un player creato molto tempo prima, ad es. ripreso dalla pausa), proseguita dalle scansioni seguenti;
+   - parte quando cambia la riproduzione (dopo 300 ms), non a intervalli fissi, e ritenta con attese crescenti (1,5 s … 30 s) finché un player multimediale non viene trovato. Aspetta mentre suonano suoneria, sveglia o notifiche, per non amplificarle per errore;
+   - regge le build che rifiutano di attivare alcuni misuratori (MIUI): vengono ritentati una volta in lotti più piccoli, e nessun errore di misura può fermare il servizio.
 
-Con root, `AudioSessionDiscovery` esegue `dumpsys media.audio_flinger`, analizza le tracce di output attive, mantiene quelle con uso **MEDIA**, e `VolumeBoostManager.syncActiveSessions` collega/scollega gli enhancer di conseguenza. Il servizio esegue una nuova scansione all'avvio/arresto della riproduzione e ogni pochi secondi.
+   Le sessioni silenziose restano collegate (potrebbero essere solo in pausa); vengono tenute le 8 sentite più di recente.
 
-Concedi i permessi di root (Magisk / simili) a `com.volumeboost.app` una volta. Questo percorso è ciò che rende il boost affidabile per YouTube/Deezer e per l'attivazione del boost **mentre** qualcosa è già in riproduzione. Senza root, i percorsi 1 e 2 vengono comunque eseguiti; il percorso 3 viene saltato.
+### Come si combinano: un solo boost per player
+
+Un player non deve ricevere sia l'enhancer globale sia il proprio: misurato su LineageOS, quando una traccia passa per una catena di effetti di sessione il suo audio attraversa anche la catena della sessione 0, e **+10 dB diventavano +20 dB**. Con un massimo di 75 dB sarebbe pericoloso per l'udito e per gli altoparlanti. Il modo in cui la sessione 0 si combina con le sessioni reali dipende da cosa l'app può misurare (`VolumeBoostManager.GlobalMode`):
+
+| Rilevamento sessioni | Sessione 0 | Ogni sessione reale |
+|---|---|---|
+| Root | Spenta | Boost pieno (il root trova ogni traccia multimediale) |
+| Rilevamento audio | **Sempre attiva** | **Misurata:** 0 dB se la sessione 0 la amplifica già, boost pieno se no |
+| Nessuno (niente root, nessun permesso) | Solo finché non è collegata nessuna sessione reale | Boost pieno |
+
+La misura sfrutta la stessa scansione. A ogni lotto lo scanner misura anche il **mix in uscita** (un `Visualizer` sulla sessione 0, creato dopo l'enhancer globale, quindi legge il mix già amplificato) e lo confronta con ogni sessione che sente:
+
+- mix più forte della sessione di **almeno metà del boost** (al massimo 3 dB, così conta anche quando un limitatore comprime l'audio forte) → la sessione 0 la amplifica già → il suo enhancer resta a **0 dB**;
+- altrimenti (stesso livello, o molto più basso perché il player è su un'altra uscita) → boost pieno;
+- mix non misurabile → considerata già amplificata. Meglio un boost mancante che uno doppio.
+
+Una sessione coperta mantiene un **enhancer attivo a 0 dB** invece di nessuno: su LineageOS la sessione 0 raggiunge una traccia solo finché quella traccia ha una catena di effetti di sessione. Anche una sessione annunciata via broadcast parte a 0 dB e riceve il suo guadagno alla scansione successiva, una frazione di secondo dopo l'avvio della riproduzione. Ogni scansione rimisura le sessioni collegate, perché la copertura può cambiare: MIUI sposta l'effetto globale sull'uscita che sta riproducendo musica.
+
+### Cosa succede quando premi play
+
+| Telefono | Player | Risultato |
+|---|---|---|
+| MIUI 14 | YouTube (uscita deep buffer) | Amplificato **subito** dalla sessione 0; la scansione lo misura poi come coperto e lascia il suo enhancer a 0 dB |
+| MIUI 14 | VLC (un'altra uscita) | La sessione 0 non lo raggiunge; la scansione lo misura come non coperto e gli dà il boost pieno ~0,5 s dopo l'avvio |
+| LineageOS 20 | Qualsiasi | La sessione 0 da sola non fa nulla; il player viene trovato in ~1 s (anche a schermo spento) e amplificato una volta |
+| Con root | Qualsiasi | Trovato dal dump di AudioFlinger entro ~2 s; la sessione 0 non viene usata |
+
+> Misurato su MIUI 14 (Xiaomi Redmi Note 12, boost +33 dB): le sessioni di YouTube risultavano **+3,8 … +17,7 dB** più forti nel mix che nella sessione → coperte; una sessione su un'altra uscita risultava a **−41 dB** → boost pieno. Su LineageOS 20 (Redmi Note 9 Pro): un'impostazione di +10 dB misurava esattamente **+10,0 dB**, e un player con una sessione vecchia di ~1200 id è stato trovato alla terza scansione, ~25 s dopo la ripresa.
 
 ## Funzionalità
 - Slider del boost in dB (0 … max), max configurabile 20–75 dB (predefinito 20)
 - Visualizzazione come `+15 dB` (non in percentuale)
-- Tre strategie di collegamento (sessione 0, broadcast, root AudioFlinger)
-- Il boost può essere attivato prima o durante la riproduzione (percorso 3; percorso 1 su alcuni OEM)
+- Strategie di collegamento: sessione globale 0 (immediata dove rispettata), broadcast dei player, individuazione delle sessioni tramite root o rilevamento audio (funziona senza root e senza computer); ogni player viene amplificato una sola volta
+- Il boost può essere attivato prima o durante la riproduzione
 - Notifiche (Impostazioni): controlli classici e/o barra multimediale — predefiniti **classici attivi**, **multimediale disattivata**
 - Tema (Impostazioni): chiaro / scuro — predefinito **scuro**
 - Lingua (Impostazioni): inglese / italiano — predefinito **inglese**
