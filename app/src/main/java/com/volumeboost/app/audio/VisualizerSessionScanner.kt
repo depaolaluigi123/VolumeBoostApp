@@ -267,11 +267,13 @@ object VisualizerSessionScanner {
     /**
      * Whether the global enhancer already boosts a session, from its [GlobalGainMb] and the
      * boost in dB. Above half the boost (at most 3 dB, so a limiter squeezing loud audio still
-     * counts) the session is covered. Unknown counts as covered: a missing boost is safer than a
-     * doubled one.
+     * counts) the session is covered. Unknown (the mix could not be metered, or it heard silence)
+     * counts as NOT covered: the session gets the full boost. A doubled boost where session 0
+     * works is a far smaller failure than no boost at all, which is what an unreliable
+     * measurement caused (every session left at 0 dB while session 0 did nothing).
      */
     internal fun isCoveredByGlobal(globalGainMb: GlobalGainMb, boostDb: Int): Boolean {
-        if (globalGainMb == null) return true
+        if (globalGainMb == null) return false
         val thresholdMb = minOf(boostDb * 50, 300)
         return globalGainMb >= thresholdMb
     }

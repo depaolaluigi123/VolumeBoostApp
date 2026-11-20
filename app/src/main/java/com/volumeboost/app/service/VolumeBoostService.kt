@@ -163,7 +163,12 @@ class VolumeBoostService : Service() {
             // No way to find sessions: only re-check (cheap permission check, root result
             // is cached), so a permission granted while boost is on is picked up.
             AudioSessionDiscovery.Access.NONE -> NO_ACCESS_RECHECK_MS
-            AudioSessionDiscovery.Access.VISUALIZER -> scanAudibleSessions()
+            AudioSessionDiscovery.Access.VISUALIZER -> {
+                boostManager.expireUnmeasured()
+                val next = scanAudibleSessions()
+                // Sessions announced by broadcast wait for a measurement: look again soon.
+                if (next == 0L && boostManager.expireUnmeasured()) UNMEASURED_RECHECK_MS else next
+            }
             AudioSessionDiscovery.Access.ROOT -> {
                 // null = the scan failed: keep the current enhancers rather than dropping
                 // them all.
@@ -834,6 +839,7 @@ class VolumeBoostService : Service() {
         private const val ID_MINIMAL = 1003
         private const val NO_SESSION = Int.MIN_VALUE
         private const val DISCOVERY_INTERVAL_MS = 2000L
+        private const val UNMEASURED_RECHECK_MS = 1_000L
         private const val NO_ACCESS_RECHECK_MS = 10_000L
         private const val PLAYBACK_SETTLE_MS = 300L
         private const val VISUALIZER_ALERT_WAIT_MS = 2_000L

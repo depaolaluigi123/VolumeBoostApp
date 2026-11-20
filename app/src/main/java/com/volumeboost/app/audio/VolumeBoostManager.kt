@@ -59,6 +59,9 @@ class VolumeBoostManager {
     /** Sessions attached by [addHeardSessions], least recently heard first. */
     private val heardSessions = LinkedHashSet<Int>()
 
+    /** Broadcast sessions assumed covered (0 dB) until a scan measures them: id → uptime (ms). */
+    private val unmeasured = HashMap<Int, Long>()
+
     /** Session 0 was refused since boost was enabled: do not retry on every change. */
     private var globalRefused = false
 
@@ -107,7 +110,10 @@ class VolumeBoostManager {
         if (mode == globalMode) return
         globalMode = mode
         // Coverage is only measured in ALWAYS; elsewhere real sessions get the full boost.
-        if (mode != GlobalMode.ALWAYS) coveredByGlobal.clear()
+        if (mode != GlobalMode.ALWAYS) {
+            coveredByGlobal.clear()
+            unmeasured.clear()
+        }
         if (!enabled) return
         for (session in enhancers.keys.toList()) {
             if (session != GLOBAL_AUDIO_SESSION) applyTo(session)
@@ -123,8 +129,11 @@ class VolumeBoostManager {
     fun attachSession(sessionId: Int) {
         if (!enabled || sessionId == GLOBAL_AUDIO_SESSION) return
         // Not measured yet: 0 dB until the next scan, while session 0 is always on.
-        if (globalMode == GlobalMode.ALWAYS && !enhancers.containsKey(sessionId)) {
+        if (globalMode == GlobalMode.ALWAYS && !enhancers.containsKey(sessionId) &&
+            enhancers.containsKey(GLOBAL_AUDIO_SESSION)
+        ) {
             coveredByGlobal.add(sessionId)
+            unmeasured[sessionId] = nowMs()
         }
         attach(sessionId)
         updateGlobalSession()
@@ -171,7 +180,12 @@ class VolumeBoostManager {
         if (!enabled) return
         for ((session, covered) in sessions) {
             if (session == GLOBAL_AUDIO_SESSION) continue
-            if (covered && globalMode == GlobalMode.ALWAYS) {
+            unmeasured.remove(session)
+            // Covered only counts while session 0 really has an enhancer: otherwise nothing
+            // boosts the player but its own enhancer.
+            if (covered && globalMode == GlobalMode.ALWAYS &&
+                enhancers.containsKey(GLOBAL_AUDIO_SESSION)
+            ) {
                 coveredByGlobal.add(session)
             } else {
                 coveredByGlobal.remove(session)
@@ -185,6 +199,34 @@ class VolumeBoostManager {
         }
         updateGlobalSession()
     }
+
+    /**
+     * Gives the full boost to broadcast sessions that no scan measured within [UNMEASURED_GRACE_MS]
+     * (e.g. never heard, or the mix could not be read): staying at 0 dB would leave them silent
+     * of any boost if session 0 does not reach them.
+     *
+     * @return true while some session is still waiting for its first measurement.
+     */
+    @Synchronized
+    fun expireUnmeasured(): Boolean {
+        val now = nowMs()
+        val iterator = unmeasured.entries.iterator()
+        val expired = ArrayList<Int>()
+        while (iterator.hasNext()) {
+            val (session, since) = iterator.next()
+            if (now - since >= UNMEASURED_GRACE_MS) {
+                iterator.remove()
+                expired.add(session)
+            }
+        }
+        for (session in expired) {
+            coveredByGlobal.remove(session)
+            if (enabled) applyTo(session)
+        }
+        return unmeasured.isNotEmpty()
+    }
+
+    private fun nowMs() = android.os.SystemClock.elapsedRealtime()
 
     /** Real sessions with an enhancer, most recently heard first: each scan re-measures them. */
     @Synchronized
@@ -216,6 +258,9 @@ class VolumeBoostManager {
         } else if (!globalRefused && !enhancers.containsKey(GLOBAL_AUDIO_SESSION)) {
             if (!attach(GLOBAL_AUDIO_SESSION)) {
                 globalRefused = true
+                coveredByGlobal.clear()
+                unmeasured.clear()
+                for (session in enhancers.keys.toList()) applyTo(session)
                 Log.w(TAG, "Global session unavailable; relying on session discovery")
             }
         }
@@ -257,6 +302,7 @@ class VolumeBoostManager {
 
     private fun forget(sessionId: Int) {
         heardSessions.remove(sessionId)
+        unmeasured.remove(sessionId)
         coveredByGlobal.remove(sessionId)
         enhancers.remove(sessionId)?.let { release(it) }
     }
@@ -267,6 +313,7 @@ class VolumeBoostManager {
         }
         enhancers.clear()
         heardSessions.clear()
+        unmeasured.clear()
         coveredByGlobal.clear()
     }
 
@@ -287,6 +334,9 @@ class VolumeBoostManager {
 
         /** Sessions kept by [addHeardSessions]; older ones have most likely ended. */
         private const val MAX_HEARD_SESSIONS = 8
+
+        /** How long a broadcast session may stay at 0 dB waiting to be measured. */
+        const val UNMEASURED_GRACE_MS = 3_000L
 
         /** [LoudnessEnhancer.setTargetGain] takes millibels: 1 dB = 100 mB. */
         fun dbToMillibels(db: Int): Int = db * 100

@@ -71,8 +71,8 @@ class VisualizerSessionScannerTest {
     }
 
     @Test
-    fun unknownMix_countsAsCovered() {
-        // No mix reading: a missing boost is safer than a doubled one.
-        assertTrue(VisualizerSessionScanner.isCoveredByGlobal(globalGainMb = null, boostDb = 20))
+    fun unknownMix_isNotCovered() {
+        // No mix reading: boost the session itself (a missing boost was the 1.1 regression).
+        assertFalse(VisualizerSessionScanner.isCoveredByGlobal(globalGainMb = null, boostDb = 20))
     }
 }
